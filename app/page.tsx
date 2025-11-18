@@ -1,5 +1,10 @@
 // app/page.tsx
-import { getAllStatuses, type StatusSummary } from "@/lib/statusSources";
+import {
+  getAllStatuses,
+  type StatusSummary,
+  type StatusLevel,
+  DASHBOARD_DESCRIPTION,
+} from "@/lib/statusSources";
 
 export const revalidate = 60; // ISR – refresh data every 60 seconds
 
@@ -11,10 +16,7 @@ export default async function HomePage() {
       <div className="w-full max-w-5xl">
         <header className="mb-8">
           <h1 className="text-3xl font-semibold mb-2">Infra Status Dashboard</h1>
-          <p className="text-sm text-slate-400">
-            Aggregated status from AWS Health, Cloudflare, Vercel, Contentful, Jira, Confluence,
-  Datadog EU, GitHub, Boomi, Cybersource, Ordergroove and commercetools.
-          </p>
+          <p className="text-sm text-slate-400">{DASHBOARD_DESCRIPTION}</p>
         </header>
 
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -41,9 +43,7 @@ function StatusCard({ summary }: { summary: StatusSummary }) {
       </div>
 
       {summary.message && (
-        <p className="text-xs text-slate-300">
-          {summary.message}
-        </p>
+        <p className="text-xs text-slate-300">{summary.message}</p>
       )}
 
       {summary.latestItems && summary.latestItems.length > 0 && (
@@ -63,9 +63,7 @@ function StatusCard({ summary }: { summary: StatusSummary }) {
                 <span>{item.title}</span>
               )}
               {item.date && (
-                <div className="text-[10px] text-slate-400">
-                  {item.date}
-                </div>
+                <div className="text-[10px] text-slate-400">{item.date}</div>
               )}
             </li>
           ))}
@@ -91,7 +89,9 @@ function StatusCard({ summary }: { summary: StatusSummary }) {
   );
 }
 
-function getStatusBadgeClasses(status: StatusLevel) {
+// ---------- helpers for badge + label ----------
+
+function getBadgeClass(status: StatusLevel): string {
   switch (status) {
     case "operational":
       return "bg-emerald-500/15 text-emerald-300 border border-emerald-400/40";
@@ -100,22 +100,20 @@ function getStatusBadgeClasses(status: StatusLevel) {
     case "major_outage":
       return "bg-rose-500/15 text-rose-300 border border-rose-400/40";
     default:
-      // Should never hit this, but treat as degraded just in case
+      // should never hit; treat anything unexpected as degraded
       return "bg-amber-500/15 text-amber-300 border border-amber-400/40";
   }
 }
 
-function getStatusLabel(status: StatusSummary["status"]) {
+function getStatusLabel(status: StatusLevel): string {
   switch (status) {
     case "operational":
       return "Operational";
     case "degraded":
       return "Degraded";
-    case "partial_outage":
-      return "Partial outage";
     case "major_outage":
       return "Major outage";
     default:
-      return "Unknown";
+      return "Degraded";
   }
 }
