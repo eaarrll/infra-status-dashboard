@@ -12,8 +12,8 @@ export default async function HomePage() {
         <header className="mb-8">
           <h1 className="text-3xl font-semibold mb-2">Infra Status Dashboard</h1>
           <p className="text-sm text-slate-400">
-            Aggregated status from AWS, Cloudflare, Vercel, Contentful, Jira and
-            Confluence.
+            Aggregated status from AWS Health, Cloudflare, Vercel, Contentful, Jira, Confluence,
+  Datadog EU, GitHub, Boomi, Cybersource, Ordergroove and commercetools.
           </p>
         </header>
 
