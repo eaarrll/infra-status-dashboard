@@ -32,8 +32,8 @@ function StatusCard({ summary }: { summary: StatusSummary }) {
   const label = getStatusLabel(summary.status);
 
   return (
-    <article className="border border-slate-800 rounded-xl p-4 bg-slate-900/60 backdrop-blur flex flex-col gap-2">
-      <div className="flex items-center justify-between">
+    <article className="border border-slate-800 rounded-xl p-4 bg-slate-900/60 backdrop-blur">
+      <div className="flex items-center justify-between mb-2">
         <h2 className="font-medium">{summary.name}</h2>
         <span className={`text-xs px-2 py-1 rounded-full ${badgeClass}`}>
           {label}
@@ -41,38 +41,12 @@ function StatusCard({ summary }: { summary: StatusSummary }) {
       </div>
 
       {summary.message && (
-        <p className="text-xs text-slate-300">
+        <p className="text-xs text-slate-300 line-clamp-3 mb-2">
           {summary.message}
         </p>
       )}
 
-      {summary.latestItems && summary.latestItems.length > 0 && (
-        <ul className="mt-1 space-y-1 text-xs text-slate-200">
-          {summary.latestItems.map((item, idx) => (
-            <li key={idx}>
-              {item.link ? (
-                <a
-                  href={item.link}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline underline-offset-2 hover:no-underline"
-                >
-                  {item.title}
-                </a>
-              ) : (
-                <span>{item.title}</span>
-              )}
-              {item.date && (
-                <div className="text-[10px] text-slate-400">
-                  {item.date}
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div className="mt-1 flex items-center justify-between text-[11px] text-slate-400">
+      <div className="flex items-center justify-between text-[11px] text-slate-400">
         {summary.lastUpdated && (
           <span>Last update: {summary.lastUpdated}</span>
         )}
