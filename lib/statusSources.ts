@@ -1,4 +1,8 @@
-// types & helpers
+// lib/statusSources.ts
+
+// ─────────────────────────────
+// TYPES & SHARED HELPERS
+// ─────────────────────────────
 
 export type StatusLevel = "operational" | "degraded" | "major_outage";
 
@@ -18,7 +22,7 @@ export interface StatusSummary {
   latestItems?: StatusItem[];
 }
 
-// Use this in your main UI as a subtitle / description
+// Use this in the main UI as subtitle / description
 export const DASHBOARD_DESCRIPTION =
   "Infra status dashboard monitoring: AWS Health (global, us-east-2), Cloudflare, Datadog EU, GitHub, Boomi, Cybersource, commercetools, Ordergroove, Vercel, Contentful, Jira Software, and Confluence.";
 
@@ -265,7 +269,7 @@ async function getSimpleHttpStatus(
 }
 
 /**
- * Generic Statuspage `/api/v2/status.json` consumer (no incidents).
+ * Generic Statuspage `/api/v2/status.json` consumer (no incidents list).
  */
 async function getStatuspageStatus(
   id: string,
@@ -327,7 +331,6 @@ export async function getCloudflareStatus(): Promise<StatusSummary> {
 }
 
 // AWS HEALTH (global + us-east-2)
-
 export async function getAwsHealthStatus(): Promise<StatusSummary> {
   return getSimpleHttpStatus(
     "aws-health",
@@ -344,10 +347,9 @@ export async function getAwsHealthUsEast2Status(): Promise<StatusSummary> {
   );
 }
 
-// VERSEL (RSS)
-
+// VERCEL → /api/v2/status.json (Statuspage)
 export function getVercelStatus(): Promise<StatusSummary> {
-  return getRssStatus(
+  return getStatuspageStatus(
     "vercel",
     "Vercel",
     "https://www.vercel-status.com/api/v2/status.json",
@@ -446,7 +448,7 @@ export function getCommercetoolsStatus(): Promise<StatusSummary> {
   );
 }
 
-// ORDERGROOVE (simple HTTP ping)
+// ORDERGROOVE (simple HTTP ping to their status API)
 export function getOrdergrooveStatus(): Promise<StatusSummary> {
   return getSimpleHttpStatus(
     "ordergroove",
