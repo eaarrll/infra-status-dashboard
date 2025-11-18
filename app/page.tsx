@@ -91,17 +91,17 @@ function StatusCard({ summary }: { summary: StatusSummary }) {
   );
 }
 
-function getBadgeClass(status: StatusSummary["status"]) {
+function getStatusBadgeClasses(status: StatusLevel) {
   switch (status) {
     case "operational":
       return "bg-emerald-500/15 text-emerald-300 border border-emerald-400/40";
     case "degraded":
-    case "partial_outage":
       return "bg-amber-500/15 text-amber-300 border border-amber-400/40";
     case "major_outage":
       return "bg-rose-500/15 text-rose-300 border border-rose-400/40";
     default:
-      return "bg-slate-500/15 text-slate-300 border border-slate-400/40";
+      // Should never hit this, but treat as degraded just in case
+      return "bg-amber-500/15 text-amber-300 border border-amber-400/40";
   }
 }
 
