@@ -1,6 +1,12 @@
+// lib/statusSources.ts
+
 // types & helpers
 
-export type StatusLevel = "operational" | "degraded" | "major_outage";
+export type StatusLevel =
+  | "operational"
+  | "degraded"
+  | "partial_outage"
+  | "major_outage";
 
 export interface StatusItem {
   title: string;
@@ -194,6 +200,7 @@ function mapStatuspageIndicator(indicator?: string | null): StatusLevel {
     case "none":
       return "operational";
     case "minor":
+    case "maintenance":
       return "degraded";
     case "major":
     case "critical":
@@ -201,6 +208,36 @@ function mapStatuspageIndicator(indicator?: string | null): StatusLevel {
     default:
       // If they add new indicators we don't know, treat as degraded
       return "degraded";
+  }
+}
+
+/**
+ * Combine two StatusLevels and return the "worst" one.
+ */
+function maxStatus(a: StatusLevel, b: StatusLevel): StatusLevel {
+  const order: StatusLevel[] = [
+    "operational",
+    "degraded",
+    "partial_outage",
+    "major_outage",
+  ];
+  return order[Math.max(order.indexOf(a), order.indexOf(b))] ?? b;
+}
+
+/**
+ * Map Statuspage incident impact -> StatusLevel (or null if unknown).
+ */
+function impactToStatus(impact?: string | null): StatusLevel | null {
+  switch (impact) {
+    case "critical":
+    case "major":
+      return "major_outage";
+    case "minor":
+    case "maintenance":
+    case "none":
+      return "degraded";
+    default:
+      return null;
   }
 }
 
@@ -266,6 +303,7 @@ async function getSimpleHttpStatus(
 
 /**
  * Generic Statuspage `/api/v2/status.json` consumer (no incidents).
+ * Kept for providers where we don't need component / incident detail.
  */
 async function getStatuspageStatus(
   id: string,
@@ -312,16 +350,120 @@ async function getStatuspageStatus(
   }
 }
 
+/**
+ * Statuspage `/api/v2/summary.json` consumer.
+ * Looks at:
+ *   - global indicator
+ *   - active incidents (impact)
+ *   - component statuses
+ * and surfaces incidents as latestItems.
+ */
+async function getStatuspageSummaryStatus(
+  id: string,
+  name: string,
+  summaryUrl: string,
+  detailUrl: string
+): Promise<StatusSummary> {
+  try {
+    const res = await fetch(summaryUrl, { next: { revalidate: 60 } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = await res.json();
+
+    const indicator = data?.status?.indicator as string | undefined;
+    let status = mapStatuspageIndicator(indicator);
+    const description = data?.status?.description as string | undefined;
+    const updatedAt = data?.page?.updated_at as string | undefined;
+
+    const incidents = (data?.incidents ?? []) as any[];
+    const components = (data?.components ?? []) as any[];
+
+    // Active incidents (exclude clearly finished ones)
+    const activeIncidents = incidents.filter((incident) => {
+      const st = (incident.status as string | undefined)?.toLowerCase();
+      return st && !["resolved", "postmortem", "completed"].includes(st);
+    });
+
+    for (const incident of activeIncidents) {
+      const impactLevel = impactToStatus(
+        incident.impact as string | undefined
+      );
+      if (impactLevel) {
+        status = maxStatus(status, impactLevel);
+      }
+    }
+
+    // Component-level status (major_outage / degraded / maintenance etc.)
+    for (const comp of components) {
+      const cStatus = (comp.status as string | undefined) ?? "";
+      switch (cStatus) {
+        case "major_outage":
+          status = maxStatus(status, "major_outage");
+          break;
+        case "partial_outage":
+        case "degraded_performance":
+        case "under_maintenance":
+          status = maxStatus(status, "degraded");
+          break;
+        default:
+          break;
+      }
+    }
+
+    const latestItems: StatusItem[] = incidents.slice(0, 3).map((incident) => ({
+      title: truncate(incident.name ?? "Incident", 120),
+      date:
+        incident.started_at ??
+        incident.created_at ??
+        incident.updated_at ??
+        updatedAt,
+      link:
+        incident.shortlink ??
+        incident.url ??
+        incident.incident_updates?.[0]?.url ??
+        detailUrl,
+    }));
+
+    return {
+      id,
+      name,
+      status,
+      detailUrl,
+      lastUpdated: updatedAt,
+      message: description ?? (latestItems[0]?.title ?? "Status summary"),
+      latestItems: latestItems.length ? latestItems : undefined,
+    };
+  } catch (err) {
+    console.error(`${name} summary status fetch failed`, err);
+    const now = new Date().toISOString();
+    return {
+      id,
+      name,
+      status: "degraded",
+      detailUrl,
+      lastUpdated: now,
+      message: "Unable to fetch status",
+      latestItems: [
+        {
+          title: `Unable to fetch ${name} status`,
+          date: now,
+          link: detailUrl,
+        },
+      ],
+    };
+  }
+}
+
 // ─────────────────────────────
 // PROVIDERS
 // ─────────────────────────────
 
-// CLOUDFLARE → /api/v2/status.json (Statuspage)
+// CLOUDFLARE → /api/v2/summary.json (Statuspage)
 export async function getCloudflareStatus(): Promise<StatusSummary> {
-  return getStatuspageStatus(
+  return getStatuspageSummaryStatus(
     "cloudflare",
     "Cloudflare",
-    "https://www.cloudflarestatus.com/api/v2/status.json",
+    "https://www.cloudflarestatus.com/api/v2/summary.json",
     "https://www.cloudflarestatus.com"
   );
 }
@@ -344,48 +486,47 @@ export async function getAwsHealthUsEast2Status(): Promise<StatusSummary> {
   );
 }
 
-// VERSEL (RSS)
-
+// VERCEL → /api/v2/summary.json (Statuspage)
 export function getVercelStatus(): Promise<StatusSummary> {
-  return getRssStatus(
+  return getStatuspageSummaryStatus(
     "vercel",
     "Vercel",
-    "https://www.vercel-status.com/api/v2/status.json",
+    "https://www.vercel-status.com/api/v2/summary.json",
     "https://www.vercel-status.com"
   );
 }
 
-// CONTENTFUL → /api/v2/status.json (Statuspage)
+// CONTENTFUL → /api/v2/summary.json (Statuspage)
 export function getContentfulStatus(): Promise<StatusSummary> {
-  return getStatuspageStatus(
+  return getStatuspageSummaryStatus(
     "contentful",
     "Contentful",
-    "https://www.contentfulstatus.com/api/v2/status.json",
+    "https://www.contentfulstatus.com/api/v2/summary.json",
     "https://www.contentfulstatus.com"
   );
 }
 
-// JIRA → /api/v2/status.json (Statuspage)
+// JIRA → /api/v2/summary.json (Statuspage)
 export function getJiraStatus(): Promise<StatusSummary> {
-  return getStatuspageStatus(
+  return getStatuspageSummaryStatus(
     "jira",
     "Jira Software",
-    "https://jira-software.status.atlassian.com/api/v2/status.json",
+    "https://jira-software.status.atlassian.com/api/v2/summary.json",
     "https://jira-software.status.atlassian.com/"
   );
 }
 
-// CONFLUENCE → /api/v2/status.json (Statuspage)
+// CONFLUENCE → /api/v2/summary.json (Statuspage)
 export function getConfluenceStatus(): Promise<StatusSummary> {
-  return getStatuspageStatus(
+  return getStatuspageSummaryStatus(
     "confluence",
     "Confluence",
-    "https://confluence.status.atlassian.com/api/v2/status.json",
+    "https://confluence.status.atlassian.com/api/v2/summary.json",
     "https://confluence.status.atlassian.com/"
   );
 }
 
-// CYBERSOURCE (Statuspage summary JSON)
+// CYBERSOURCE (Statuspage summary JSON – custom handling to keep incidents list)
 export async function getCybersourceStatus(): Promise<StatusSummary> {
   const url = "https://status.cybersource.com/api/v2/status.json";
 
@@ -400,7 +541,7 @@ export async function getCybersourceStatus(): Promise<StatusSummary> {
     const incidents = (data?.incidents ?? []) as any[];
 
     const latestItems: StatusItem[] = incidents.slice(0, 3).map((incident) => ({
-      title: incident.name ?? "Incident",
+      title: truncate(incident.name ?? "Incident", 120),
       date: incident.started_at ?? incident.created_at,
       link:
         incident.shortlink ?? incident.url ?? "https://status.cybersource.com",
@@ -446,41 +587,43 @@ export function getCommercetoolsStatus(): Promise<StatusSummary> {
   );
 }
 
-// ORDERGROOVE (simple HTTP ping)
+// ORDERGROOVE (Statuspage summary)
 export function getOrdergrooveStatus(): Promise<StatusSummary> {
-  return getSimpleHttpStatus(
+  return getStatuspageSummaryStatus(
     "ordergroove",
     "Ordergroove",
-    "https://status.ordergroove.com/api/v2/status.json"
+    "https://status.ordergroove.com/api/v2/summary.json",
+    "https://status.ordergroove.com"
   );
 }
 
-// DATADOG EU (Statuspage /api/v2/status.json)
+// DATADOG EU (Statuspage summary)
 export function getDatadogEuStatus(): Promise<StatusSummary> {
-  return getStatuspageStatus(
+  return getStatuspageSummaryStatus(
     "datadog-eu",
     "Datadog EU",
-    "https://status.datadoghq.eu/api/v2/status.json",
+    "https://status.datadoghq.eu/api/v2/summary.json",
     "https://status.datadoghq.eu"
   );
 }
 
-// GITHUB (Statuspage /api/v2/status.json)
+// GITHUB (Statuspage summary, using incidents/components so incidents like
+// "Issues and Pull Requests degraded" show as non-green)
 export function getGithubStatus(): Promise<StatusSummary> {
-  return getStatuspageStatus(
+  return getStatuspageSummaryStatus(
     "github",
     "GitHub",
-    "https://www.githubstatus.com/api/v2/status.json",
+    "https://www.githubstatus.com/api/v2/summary.json",
     "https://www.githubstatus.com"
   );
 }
 
-// BOOMI (Statuspage /api/v2/status.json)
+// BOOMI (Statuspage summary)
 export function getBoomiStatus(): Promise<StatusSummary> {
-  return getStatuspageStatus(
+  return getStatuspageSummaryStatus(
     "boomi",
     "Boomi",
-    "https://status.boomi.com/api/v2/status.json",
+    "https://status.boomi.com/api/v2/summary.json",
     "https://status.boomi.com"
   );
 }
